@@ -64,7 +64,8 @@ use crate::utils::{self, toml_ext::TomlExt};
 
 /// The overall configuration object for MDBook, essentially an in-memory
 /// representation of `book.toml`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default)]
 pub struct Config {
     /// Metadata about the book.
     pub book: BookConfig,
@@ -80,7 +81,39 @@ impl FromStr for Config {
 
     /// Load a `Config` from some string.
     fn from_str(src: &str) -> Result<Self> {
-        toml::from_str(src).with_context(|| "Invalid configuration file")
+        let raw = match src.parse::<Value>() {
+            Ok(raw) => {
+                if is_legacy_format(&raw) {
+                    return Ok(Config::from_legacy(raw));
+                }
+                raw
+            }
+            _ => bail!("Invalid configuration file")
+        };
+        let mut table = match raw {
+            Value::Table(t) => t,
+            _ => {
+                return bail!("A config file should always be a toml table");
+            }
+        };
+        let x: Result<Config> = toml::from_str(src).with_context(|| "Invalid configuration file");
+        // x
+        table.remove("book");
+        table.remove("build");
+        table.remove("rust");
+        Ok(Config {
+            // book: BookConfig::default(),
+            book: x.as_ref().unwrap().clone().book,
+            // build: BuildConfig::default(),
+            build: x.as_ref().unwrap().clone().build,
+            rust: x.as_ref().unwrap().clone().rust,
+            // rust: RustConfig::default(),
+            rest: Value::Table(table),
+        })
+        // x.unwrap().rest = raw;
+        // dbg!(&x);
+        // x
+        // toml::from_str(src).with_context(|| "Invalid configuration file")
     }
 }
 
@@ -227,6 +260,7 @@ impl Config {
         let value = Value::try_from(value)
             .with_context(|| "Unable to represent the item as a JSON Value")?;
 
+         println!("setting it now: {} {}", &index, &value);
         if index.starts_with("book.") {
             self.book.update_value(&index[5..], value);
         } else if index.starts_with("build.") {
@@ -234,6 +268,7 @@ impl Config {
         } else {
             self.rest.insert(index, value);
         }
+
 
         Ok(())
     }
@@ -295,59 +330,61 @@ impl Default for Config {
     }
 }
 
-impl<'de> Deserialize<'de> for Config {
-    fn deserialize<D: Deserializer<'de>>(de: D) -> std::result::Result<Self, D::Error> {
-        let raw = Value::deserialize(de)?;
-
-        if is_legacy_format(&raw) {
-            warn!("It looks like you are using the legacy book.toml format.");
-            warn!("We'll parse it for now, but you should probably convert to the new format.");
-            warn!("See the mdbook documentation for more details, although as a rule of thumb");
-            warn!("just move all top level configuration entries like `title`, `author` and");
-            warn!("`description` under a table called `[book]`, move the `destination` entry");
-            warn!("from `[output.html]`, renamed to `build-dir`, under a table called");
-            warn!("`[build]`, and it should all work.");
-            warn!("Documentation: http://rust-lang.github.io/mdBook/format/config.html");
-            return Ok(Config::from_legacy(raw));
-        }
-
-        use serde::de::Error;
-        let mut table = match raw {
-            Value::Table(t) => t,
-            _ => {
-                return Err(D::Error::custom(
-                    "A config file should always be a toml table",
-                ));
-            }
-        };
-
-        let book: BookConfig = table
-            .remove("book")
-            .map(|book| book.try_into().map_err(D::Error::custom))
-            .transpose()?
-            .unwrap_or_default();
-
-        let build: BuildConfig = table
-            .remove("build")
-            .map(|build| build.try_into().map_err(D::Error::custom))
-            .transpose()?
-            .unwrap_or_default();
-
-        let rust: RustConfig = table
-            .remove("rust")
-            .map(|rust| rust.try_into().map_err(D::Error::custom))
-            .transpose()?
-            .unwrap_or_default();
-
-        Ok(Config {
-            book,
-            build,
-            rust,
-            rest: Value::Table(table),
-        })
-    }
-}
-
+// impl<'de> Deserialize<'de> for Config {
+//     fn deserialize<D: Deserializer<'de>>(de: D) -> std::result::Result<Self, D::Error> {
+//         let raw = Value::deserialize(de)?;
+//
+//         if is_legacy_format(&raw) {
+//             warn!("It looks like you are using the legacy book.toml format.");
+//             warn!("We'll parse it for now, but you should probably convert to the new format.");
+//             warn!("See the mdbook documentation for more details, although as a rule of thumb");
+//             warn!("just move all top level configuration entries like `title`, `author` and");
+//             warn!("`description` under a table called `[book]`, move the `destination` entry");
+//             warn!("from `[output.html]`, renamed to `build-dir`, under a table called");
+//             warn!("`[build]`, and it should all work.");
+//             warn!("Documentation: http://rust-lang.github.io/mdBook/format/config.html");
+//             return Ok(Config::from_legacy(raw));
+//         }
+//
+//         use serde::de::Error;
+//         let mut table = match raw {
+//             Value::Table(t) => t,
+//             _ => {
+//                 return Err(D::Error::custom(
+//                     "A config file should always be a toml table",
+//                 ));
+//             }
+//         };
+//
+//         let book: BookConfig = table
+//             .remove("book")
+//             // .map(|book| dbg!(book))
+//             .map(|book| book.try_into().map_err(D::Error::custom))
+//             .transpose()?
+//             // .map(|book| dbg!(book))
+//             .unwrap_or_default();
+//
+//         let build: BuildConfig = table
+//             .remove("build")
+//             .map(|build| build.try_into().map_err(D::Error::custom))
+//             .transpose()?
+//             .unwrap_or_default();
+//
+//         let rust: RustConfig = table
+//             .remove("rust")
+//             .map(|rust| rust.try_into().map_err(D::Error::custom))
+//             .transpose()?
+//             .unwrap_or_default();
+//
+//         Ok(Config {
+//             book,
+//             build,
+//             rust,
+//             rest: Value::Table(table),
+//         })
+//     }
+// }
+//
 impl Serialize for Config {
     fn serialize<S: Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
         // TODO: This should probably be removed and use a derive instead.
@@ -793,8 +830,8 @@ mod tests {
                     String::from("https://rust-lang.org/"),
                 ),
             ]
-            .into_iter()
-            .collect(),
+                .into_iter()
+                .collect(),
             ..Default::default()
         };
 
@@ -1096,6 +1133,37 @@ mod tests {
         let html_config = got.html_config().unwrap();
         assert_eq!(html_config.input_404, Some("missing.md".to_string()));
         assert_eq!(&get_404_output_file(&html_config.input_404), "missing.html");
+    }
+
+    #[test]
+    fn rest_values() {
+        let src = r#"
+        [book]
+        title = "my book"
+        language = "en"
+        description = "Create book from markdown files. Like Gitbook but implemented in Rust"
+        authors = ["Mathieu David"]
+        src = "./source"
+
+        [preprocessor.foo]
+        command = "some/path"
+        renderer = ["html", "epub"]
+        "#;
+
+        let got = Config::from_str(src).unwrap();
+        // dbg!(&got);
+        // assert_eq!(got.book.title, Some(String::from("my book")));
+        assert_eq!(
+            got.get("preprocessor.foo.command").unwrap().as_str(),
+            Some("some/path")
+        );
+        assert_eq!(
+            got.get("preprocessor.foo.renderer").unwrap().as_array(),
+            Some(&vec![
+                Value::String(String::from("html")),
+                Value::String(String::from("epub"))
+            ])
+        );
     }
 
     #[test]

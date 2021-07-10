@@ -202,6 +202,6 @@ mod tests {
         let (got_ctx, got_book) = CmdPreprocessor::parse_input(buffer.as_slice()).unwrap();
 
         assert_eq!(got_book, md.book);
-        assert_eq!(got_ctx, ctx);
+         assert_eq!(got_ctx, ctx);
     }
 }
